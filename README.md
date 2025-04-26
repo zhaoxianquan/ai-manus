@@ -2,6 +2,10 @@
 
 English | [中文](README_zh.md)
 
+[![GitHub stars](https://img.shields.io/github/stars/simpleyyt/ai-manus?style=social)](https://github.com/simpleyyt/ai-manus/stargazers)
+&ensp;
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 AI Manus is a general-purpose AI Agent system that supports running various tools and operations in a sandbox environment.
 
 Enjoy your own agent with AI Manus!

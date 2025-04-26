@@ -2,6 +2,10 @@
 
 [English](README.md) | 中文
 
+[![GitHub stars](https://img.shields.io/github/stars/simpleyyt/ai-manus?style=social)](https://github.com/simpleyyt/ai-manus/stargazers)
+&ensp;
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 AI Manus 是一个通用的 AI Agent 系统，支持在沙盒环境中运行各种工具和操作。
 
 用 AI Manus 开启你的智能体之旅吧！
