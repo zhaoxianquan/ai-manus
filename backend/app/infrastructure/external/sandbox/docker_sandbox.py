@@ -1,0 +1,349 @@
+from typing import Dict, Any, Optional, List
+import uuid
+import httpx
+import docker
+import socket
+import logging
+import asyncio
+from app.infrastructure.config import get_settings
+from urllib.parse import urlparse
+from app.domain.models.tool_result import ToolResult
+
+logger = logging.getLogger(__name__)
+
+class DockerSandbox:
+    def __init__(self, ip: str = None):
+        """Initialize Docker sandbox and API interaction client"""
+        self.client = httpx.AsyncClient(timeout=600)
+        self.ip = ip
+        self.base_url = f"http://{self.ip}:8080"
+        self.vnc_url = f"ws://{self.ip}:5901"
+        self.cdp_url = f"http://{self.ip}:9222"
+
+    @staticmethod
+    def _create_task() -> 'DockerSandbox':
+        """Create a new Docker sandbox (static method)
+        
+        Args:
+            image: Docker image name
+            name_prefix: Container name prefix
+            
+        Returns:
+            DockerSandbox instance
+        """
+        # Use configured default values
+        settings = get_settings()
+
+        image = settings.sandbox_image
+        name_prefix = settings.sandbox_name_prefix
+        container_name = f"{name_prefix}-{str(uuid.uuid4())[:8]}"
+        
+        try:
+            # Create Docker client
+            docker_client = docker.from_env()
+
+            # Prepare container configuration
+            container_config = {
+                "image": image,
+                "name": container_name,
+                "detach": True,
+                "remove": True,
+                "environment": {
+                    "SERVICE_TIMEOUT_MINUTES": settings.sandbox_ttl_minutes,
+                    "CHROME_ARGS": settings.sandbox_chrome_args,
+                    "HTTPS_PROXY": settings.sandbox_https_proxy,
+                    "HTTP_PROXY": settings.sandbox_http_proxy,
+                    "NO_PROXY": settings.sandbox_no_proxy
+                }
+            }
+            
+            # Add network to container config if configured
+            if settings.sandbox_network:
+                container_config["network"] = settings.sandbox_network
+            
+            # Create container
+            container = docker_client.containers.run(**container_config)
+            
+            # Get container IP address
+            container.reload()  # Refresh container info
+            
+            # Get container network settings
+            network_settings = container.attrs['NetworkSettings']
+            ip_address = network_settings['IPAddress']
+            
+            # If default network has no IP, try to get IP from other networks
+            if not ip_address and 'Networks' in network_settings:
+                networks = network_settings['Networks']
+                # Try to get IP from first available network
+                for network_name, network_config in networks.items():
+                    if 'IPAddress' in network_config and network_config['IPAddress']:
+                        ip_address = network_config['IPAddress']
+                        break
+            
+            # Create and return DockerSandbox instance
+            return DockerSandbox(
+                ip=ip_address
+            )
+            
+        except Exception as e:
+            raise Exception(f"Failed to create Docker sandbox: {str(e)}")
+
+    @staticmethod
+    async def create() -> 'DockerSandbox':
+        settings = get_settings()
+
+        if settings.sandbox_address:
+            # Chrome CDP needs IP address
+            ip = await DockerSandbox._resolve_hostname_to_ip(settings.sandbox_address)
+            return DockerSandbox(ip=ip)
+    
+        return await asyncio.to_thread(DockerSandbox._create_task)
+    
+    def get_cdp_url(self) -> str:
+        return self.cdp_url
+
+    def get_vnc_url(self) -> str:
+        return self.vnc_url
+
+    async def exec_command(self, session_id: str, exec_dir: str, command: str) -> ToolResult:
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/shell/exec",
+            json={
+                "id": session_id,
+                "exec_dir": exec_dir,
+                "command": command
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def view_shell(self, session_id: str) -> ToolResult:
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/shell/view",
+            json={"id": session_id}
+        )
+        return ToolResult(**response.json())
+
+    async def wait_for_process(self, session_id: str, seconds: Optional[int] = None) -> ToolResult:
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/shell/wait",
+            json={
+                "id": session_id,
+                "seconds": seconds
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def write_to_process(self, session_id: str, input_text: str, press_enter: bool = True) -> ToolResult:
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/shell/write",
+            json={
+                "id": session_id,
+                "input": input_text,
+                "press_enter": press_enter
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def kill_process(self, session_id: str) -> ToolResult:
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/shell/kill",
+            json={"id": session_id}
+        )
+        return ToolResult(**response.json())
+
+    async def file_write(self, file: str, content: str, append: bool = False, 
+                        leading_newline: bool = False, trailing_newline: bool = False, 
+                        sudo: bool = False) -> ToolResult:
+        """Write content to file
+        
+        Args:
+            file: File path
+            content: Content to write
+            append: Whether to append content
+            leading_newline: Whether to add newline before content
+            trailing_newline: Whether to add newline after content
+            sudo: Whether to use sudo privileges
+            
+        Returns:
+            Result of write operation
+        """
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/file/write",
+            json={
+                "file": file,
+                "content": content,
+                "append": append,
+                "leading_newline": leading_newline,
+                "trailing_newline": trailing_newline,
+                "sudo": sudo
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def file_read(self, file: str, start_line: int = None, 
+                        end_line: int = None, sudo: bool = False) -> ToolResult:
+        """Read file content
+        
+        Args:
+            file: File path
+            start_line: Start line number
+            end_line: End line number
+            sudo: Whether to use sudo privileges
+            
+        Returns:
+            File content
+        """
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/file/read",
+            json={
+                "file": file,
+                "start_line": start_line,
+                "end_line": end_line,
+                "sudo": sudo
+            }
+        )
+        return ToolResult(**response.json())
+        
+    async def file_exists(self, path: str) -> ToolResult:
+        """Check if file exists
+        
+        Args:
+            path: File path
+            
+        Returns:
+            Whether file exists
+        """
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/file/exists",
+            json={"path": path}
+        )
+        return ToolResult(**response.json())
+        
+    async def file_delete(self, path: str) -> ToolResult:
+        """Delete file
+        
+        Args:
+            path: File path
+            
+        Returns:
+            Result of delete operation
+        """
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/file/delete",
+            json={"path": path}
+        )
+        return ToolResult(**response.json())
+        
+    async def file_list(self, path: str) -> ToolResult:
+        """List directory contents
+        
+        Args:
+            path: Directory path
+            
+        Returns:
+            List of directory contents
+        """
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/file/list",
+            json={"path": path}
+        )
+        return ToolResult(**response.json())
+
+    async def file_replace(self, file: str, old_str: str, new_str: str, sudo: bool = False) -> ToolResult:
+        """Replace string in file
+        
+        Args:
+            file: File path
+            old_str: String to replace
+            new_str: String to replace with
+            sudo: Whether to use sudo privileges
+            
+        Returns:
+            Result of replace operation
+        """
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/file/replace",
+            json={
+                "file": file,
+                "old_str": old_str,
+                "new_str": new_str,
+                "sudo": sudo
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def file_search(self, file: str, regex: str, sudo: bool = False) -> ToolResult:
+        """Search in file content
+        
+        Args:
+            file: File path
+            regex: Regular expression
+            sudo: Whether to use sudo privileges
+            
+        Returns:
+            Search results
+        """
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/file/search",
+            json={
+                "file": file,
+                "regex": regex,
+                "sudo": sudo
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def file_find(self, path: str, glob_pattern: str) -> ToolResult:
+        """Find files by name pattern
+        
+        Args:
+            path: Search directory path
+            glob_pattern: Glob match pattern
+            
+        Returns:
+            List of found files
+        """
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/file/find",
+            json={
+                "path": path,
+                "glob": glob_pattern
+            }
+        )
+        return ToolResult(**response.json())
+    
+    @staticmethod
+    async def _resolve_hostname_to_ip(hostname: str) -> str:
+        """Resolve hostname to IP address
+        
+        Args:
+            hostname: Hostname to resolve
+            
+        Returns:
+            Resolved IP address, or None if resolution fails
+        """
+        try:
+            # First check if hostname is already in IP address format
+            try:
+                socket.inet_pton(socket.AF_INET, hostname)
+                # If successfully parsed, it's an IPv4 address format, return directly
+                return hostname
+            except OSError:
+                # Not a valid IP address format, proceed with DNS resolution
+                pass
+                
+            # Use socket.getaddrinfo for DNS resolution
+            addr_info = socket.getaddrinfo(hostname, None, family=socket.AF_INET)
+            # Return the first IPv4 address found
+            if addr_info and len(addr_info) > 0:
+                return addr_info[0][4][0]  # Return sockaddr[0] from (family, type, proto, canonname, sockaddr), which is the IP address
+            return None
+        except Exception as e:
+            # Log error and return None on failure
+            logger.error(f"Failed to resolve hostname {hostname}: {str(e)}")
+            return None
+
+    async def close(self):
+        """Close HTTP client connection"""
+        if self.client:
+            await self.client.aclose() 

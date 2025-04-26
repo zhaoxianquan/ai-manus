@@ -1,0 +1,59 @@
+services:
+  frontend:
+    image: simpleyyt/manus-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - manus-network
+    environment:
+      - BACKEND_URL=http://backend:8000
+
+  backend:
+    image: simpleyyt/manus-backend
+    depends_on:
+      - sandbox
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - manus-network
+    environment:
+      # OpenAI API base URL
+      - API_BASE=https://api.openai.com/v1
+      # OpenAI API key, replace with your own
+      - API_KEY=sk-xxxx
+      # LLM model name
+      - MODEL_NAME=gpt-4o
+      # LLM temperature parameter, controls randomness
+      - TEMPERATURE=0.7 
+      # Maximum tokens for LLM response
+      - MAX_TOKENS=2000
+      # Google Search API key for web search capability
+      #- GOOGLE_SEARCH_API_KEY=
+      # Google Custom Search Engine ID
+      #- GOOGLE_SEARCH_ENGINE_ID=
+      # Application log level
+      - LOG_LEVEL=INFO
+      # Docker image used for the sandbox
+      - SANDBOX_IMAGE=simpleyyt/manus-sandbox
+      # Prefix for sandbox container names
+      - SANDBOX_NAME_PREFIX=sandbox
+      # Time-to-live for sandbox containers in minutes
+      - SANDBOX_TTL_MINUTES=30
+      # Docker network for sandbox containers
+      - SANDBOX_NETWORK=manus-network
+
+  sandbox:
+    image: simpleyyt/manus-sandbox
+    command: /bin/sh -c "exit 0"  # prevent sandbox from starting, ensure image is pulled
+    restart: "no"
+    networks:
+      - manus-network
+
+networks:
+  manus-network:
+    name: manus-network
+    driver: bridge
