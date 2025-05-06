@@ -124,12 +124,18 @@ This project consists of three independent sub-projects:
 
 ### Environment Setup
 
-1. Copy the configuration file:
+1. Download the project:
+```bash
+git clone https://github.com/simpleyyt/ai-manus.git
+cd ai-manus
+```
+
+2. Copy the configuration file:
 ```bash
 cp .env.example .env
 ```
 
-2. Modify the configuration file:
+3. Modify the configuration file:
 ```
 # Model provider configuration
 API_KEY=
@@ -156,13 +162,7 @@ LOG_LEVEL=INFO
 
 ### Development and Debugging
 
-1. Download the project:
-```bash
-git clone https://github.com/simpleyyt/ai-manus.git
-cd ai-manus
-```
-
-2. Run in debug mode:
+1. Run in debug mode:
 ```bash
 # Equivalent to docker compose -f docker-compose-development.yaml up
 ./dev.sh up
@@ -175,7 +175,9 @@ All services will run in reload mode, and code changes will be automatically rel
 - 5900: Sandbox VNC port
 - 9222: Sandbox Chrome browser CDP port
 
-3. When dependencies change (requirements.txt or package.json), clean up and rebuild:
+> *Note: In Debug mode, only one sandbox will be started globally*
+
+2. When dependencies change (requirements.txt or package.json), clean up and rebuild:
 ```bash
 # Clean up all related resources
 ./dev.sh down -v

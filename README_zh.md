@@ -126,12 +126,18 @@ docker compose up -d
 
 ### 环境准备
 
-1. 复制配置文件：
+1. 下载项目：
+```bash
+git clone https://github.com/simpleyyt/ai-manus.git
+cd ai-manus
+```
+
+2. 复制配置文件：
 ```bash
 cp .env.example .env
 ```
 
-2. 修改配置文件：
+3. 修改配置文件：
 ```
 # Model provider configuration
 API_KEY=
@@ -158,26 +164,22 @@ LOG_LEVEL=INFO
 
 ### 开发调试
 
-1. 下载项目：
-```bash
-git clone https://github.com/simpleyyt/ai-manus.git
-cd ai-manus
-```
-
-2. 运行调试：
+1. 运行调试：
 ```bash
 # 相当于 docker compose -f docker-compose-development.yaml up
 ./dev.sh up
 ```
 
-各服务会以reload模式运行，代码改动会自动重新加载。暴露的端口如下：
+各服务会以 reload 模式运行，代码改动会自动重新加载。暴露的端口如下：
 - 5173: Web前端端口
 - 8000: Server API服务端口
 - 8080: Sandbox API服务端口
 - 5900: Sandbox VNC端口
 - 9222: Sandbox Chrome浏览器CDP端口
 
-3. 当依赖变化时（requirements.txt或package.json），清理并重新构建：
+> *注意：在 Debug 模式全局只会启动一个沙盒*
+
+2. 当依赖变化时（requirements.txt或package.json），清理并重新构建：
 ```bash
 # 清理所有相关资源
 ./dev.sh down -v
