@@ -23,7 +23,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: ["./dev.sh"]  # Start in reload mode
+    # command: ["./dev.sh"]  # Start in reload mode
+    # 直接使用uvicorn命令替代脚本
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - ./backend:/app  # Mount source code directory
       - /var/run/docker.sock:/var/run/docker.sock:ro
